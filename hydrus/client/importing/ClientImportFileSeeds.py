@@ -1,6 +1,7 @@
 import bisect
 import collections
 import itertools
+import json
 import os
 import random
 import re
@@ -10,7 +11,8 @@ import traceback
 import typing
 import urllib.parse
 
-from hydrus.core import HydrusConstants as HC
+from hydrus.client.metadata.ClientMetadataMigrationCore import get_tags_from_metadata, get_notes_from_metadata
+from hydrus.core import HydrusConstants as HC, HydrusText
 from hydrus.core import HydrusData
 from hydrus.core import HydrusExceptions
 from hydrus.core import HydrusFileHandling
@@ -24,6 +26,7 @@ from hydrus.client import ClientConstants as CC
 from hydrus.client import ClientData
 from hydrus.client import ClientParsing
 from hydrus.client import ClientTime
+from hydrus.client.exporting import ClientExportingFiles
 from hydrus.client.importing import ClientImportFiles
 from hydrus.client.importing import ClientImporting
 from hydrus.client.importing.options import FileImportOptions
@@ -890,7 +893,7 @@ class FileSeed( HydrusSerialisable.SerialisableBase ):
         file_import_job = ClientImportFiles.FileImportJob( temp_path, file_import_options )
         
         file_import_status = file_import_job.DoWork( status_hook = status_hook )
-        
+        self.get_file_metadata(temp_path)
         self.SetStatus( file_import_status.status, note = file_import_status.note )
         self.SetHash( file_import_status.hash )
         
@@ -1660,8 +1663,9 @@ class FileSeed( HydrusSerialisable.SerialisableBase ):
                 
                 did_work = True
                 
-            
-        
+        if self._names_and_notes_dict.items().__len__() > 0:
+            if note_import_options is None:
+                note_import_options = NoteImportOptions.NoteImportOptions()
         if note_import_options is not None:
             
             if media_result is None:
@@ -1686,6 +1690,21 @@ class FileSeed( HydrusSerialisable.SerialisableBase ):
         
         return did_work
         
+    def get_file_metadata(self, file_path):
+        # Try to get metadata from image
+        params = HydrusFileHandling.HydrusImageHandling.GetParametersFromFile(file_path)
+        tag_dict = get_tags_from_metadata(params)
+        note_dict = get_notes_from_metadata(params)
+
+        if isinstance(params, str) and len(tag_dict.items()) > 0:
+            self._external_additional_service_keys_to_tags[b'local tags'] = tag_dict
+        elif isinstance(params, dict) and len(tag_dict.items()) > 0:
+            self._external_additional_service_keys_to_tags[b'local tags'] = tag_dict
+
+        # If any prompts exist, add them to the notes to be created on import
+        if len(note_dict.items()) > 0:
+            self._names_and_notes_dict.update(note_dict)
+
     
 HydrusSerialisable.SERIALISABLE_TYPES_TO_OBJECT_TYPES[ HydrusSerialisable.SERIALISABLE_TYPE_FILE_SEED ] = FileSeed
 
@@ -2929,4 +2948,3 @@ def GenerateFileSeedCachesStatus( file_seed_caches: typing.Iterable[ FileSeedCac
         
     
     return fscs
-    
